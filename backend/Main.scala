@@ -2,13 +2,22 @@ package backend
 
 import cats.effect._
 import cats.implicits._
+
+// For creating http Routes and Server
+import org.http4s._, org.http4s.dsl.io._
+import org.http4s.ember.server._
+import org.http4s.implicits._
+import org.http4s.server.Router
+import com.comcast.ip4s._
+
+// JDBC, for handling queries
 import doobie.hikari.HikariTransactor
 import doobie.util.ExecutionContexts
 import doobie.implicits._
 import doobie.ConnectionIO
 import scala.concurrent.ExecutionContext
 
-object Main extends IOApp.Simple {
+object Main extends IOApp {
 
   // Build a transactor resource. Note the explicit type parameter [IO] on fixedThreadPool
   val transactor: Resource[IO, HikariTransactor[IO]] =
@@ -24,14 +33,27 @@ object Main extends IOApp.Simple {
       )
     } yield xa
 
-  val program1: ConnectionIO[Int] = 42.pure[ConnectionIO] // simple ConnectionIO example
+  val program1: ConnectionIO[Int] = 42.pure[ConnectionIO]
 
-  override def run: IO[Unit] =
-    transactor.use { xa =>
-      for {
-        res <- program1.transact(xa)
-        _   <- IO.println("Backend echoing...")
-        _   <- IO.println(s"Result: $res")
-      } yield ()
-    }
+  val services = HttpRoutes.of[IO] {
+    case GET -> Root / "hello" =>
+      Ok(s"Hello from Backend and Database")
+    case GET -> Root / "db" =>
+      Ok(
+        transactor.use(xa => for {
+          res <- program1.transact(xa)
+          out <- IO.pure(s"DataBase says: $res")
+        } yield out)
+      )
+  }
+
+  def run(args: List[String]): IO[ExitCode] =
+    EmberServerBuilder
+      .default[IO]
+      .withHost(ipv4"0.0.0.0")
+      .withPort(port"8081")
+      .withHttpApp(services.orNotFound)
+      .build
+      .use(_ => IO.never)
+      .as(ExitCode.Success)
 }
