@@ -1,0 +1,31 @@
+name: Deploy Backend to Azure VM
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AZURE_VM_KEY }}" > ~/.ssh/azure_key
+          chmod 600 ~/.ssh/azure_key
+
+      - name: Deploy to Azure VM
+        run: |
+          ssh -i ~/.ssh/azure_key -o StrictHostKeyChecking=no ${{ secrets.AZURE_VM_USER }}@${{ secrets.AZURE_VM_IP }} << 'EOF'
+            cd backend
+            git pull origin main
+            sbt compile
+            pkill -f 'sbt run' || true
+            nohup sbt run > backend.log 2>&1 &
+          EOF
